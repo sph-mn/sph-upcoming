@@ -1,12 +1,28 @@
 #!/usr/bin/guile
 !#
 
-(import (sph) (sph cli) (sph upcoming))
+(import (sph) (sph list)
+  (sph alist) (sph cli) (sph upcoming) (sph upcoming server) (sph io) (sph io read-write))
+
+(define sph-upcoming-cli-description
+  "filter events in time with event definitions from a configuration file")
 
 (define (upcoming-cli)
   (let
     (options
-      ((cli-create #:options (q ((next #:names #\n) (config #:names #\c))) #:description "")))
-    (upcoming options)))
+      ( (cli-create #:description sph-upcoming-cli-description
+          #:options
+          (list-q (future #:names #\f) (number #:names #\n)
+            (past #:names #\p) (config)
+            (diff #:names #\d) (server #:value-optional? #t #:description "operation options ...")
+            (client)))))
+    (alist-bind options (server client)
+      (let (server-operation (and (string? server) (string->symbol server)))
+        (if server
+          (apply upcoming-server
+            (if (string? server)
+              (let (a (rw-string->list read server)) (list (first a) (apply alist (tail a))))
+              (list (q eval))))
+          (upcoming-client (l (server) (port-lines-each display-line server))))))))
 
 (upcoming-cli)
