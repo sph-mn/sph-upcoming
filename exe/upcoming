@@ -1,0 +1,12 @@
+#!/usr/bin/guile
+!#
+
+(import (sph) (sph cli) (sph upcoming))
+
+(define (upcoming-cli)
+  (let
+    (options
+      ((cli-create #:options (q ((next #:names #\n) (config #:names #\c))) #:description "")))
+    (upcoming options)))
+
+(upcoming-cli)
