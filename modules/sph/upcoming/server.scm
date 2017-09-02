@@ -1,7 +1,8 @@
 (library (sph upcoming server)
   (export
     upcoming-client
-    upcoming-server)
+    upcoming-server
+    upcoming-server-path)
   (import
     (ice-9 match)
     (rnrs eval)
