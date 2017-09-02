@@ -5,6 +5,7 @@
     event-id
     event-start
     upcoming
+    upcoming-config-get
     upcoming-config-path
     upcoming-config-variables
     upcoming-doc-config-example
@@ -102,10 +103,11 @@
       (map (l (a) (apply (l (time id . options) (apply alist (q id) id (q start) time options)) a))
         line-data)))
 
-  (define* (config-get config #:optional variables env)
-    (if (string? config)
-      (config-read config (or variables upcoming-config-variables) (or env upcoming-config-env))
-      config))
+  (define* (upcoming-config-get #:optional config variables env)
+    (let (config (or config upcoming-config-path))
+      (if (string? config)
+        (config-read config (or variables upcoming-config-variables) (or env upcoming-config-env))
+        config)))
 
   (define (map-offsets start end proc)
     (map-integers (+ 1 (- end start)) (l (n) (proc (+ n start)))))
@@ -274,35 +276,49 @@
     (if (null? ids) a (filter (l (a) (containsq? ids (event-id a))) a)))
 
   (define*
-    (upcoming-events time past-n future-n #:key event-ids config config-variables config-env
-      interval-units
-      event-functions)
+    (upcoming-events time past-n future-n #:key event-ids config interval-units event-functions)
     "list/string:path integer:utc-seconds integer integer list:alist environment hashtable -> (vector:event ...)
      create a list of events in range past-n to future-n, which select the next and previous n occurences of each available event.
      example:
-     (upcoming-events #f (ns->s (utc-current)) 0 1)"
+     (upcoming-events (ns->s (utc-current)) 0 1)"
     (let
       (ef-list
-        (create-event-functions
-          (config-get (or config upcoming-config-path)
-            (or config-variables upcoming-config-variables) (or config-env upcoming-config-env))
-          (or event-functions upcoming-event-functions) (or interval-units upcoming-interval-units)
-          (compose first pair)))
+        (create-event-functions config (or event-functions upcoming-event-functions)
+          (or interval-units upcoming-interval-units) (compose first pair)))
       (events-filter-ids (or event-ids null)
         (append-map (l (ef) (ef time past-n future-n)) ef-list))))
 
+  (define* (upcoming-reduce events time past-n future-n id-n)
+    "calculate new time differences and reselect the relevant range"
+    (events-reduce-range (events-add-diff-start time events) time past-n future-n id-n))
+
+  (define* (upcoming-config-cache c #:key config config-variables config-env)
+    "procedure:{procedure:get-config:{cache -> cache} cache:initial -> any} -> any
+     call c with a procedure that only returns a new configuration object when a corresponding configuration file was updated.
+     the second argument to c is the initial cache object"
+    (let
+      (get-config
+        (let
+          ( (variables (or config-variables upcoming-config-variables))
+            (env (or config-env upcoming-config-env)) (source (or config upcoming-config-path)))
+          ; reload config if the file changed if config is read from a file.
+          (if (string? source)
+            (l (config)
+              (let ((last-mtime (first config)) (mtime (stat:mtime (stat source))))
+                (if (< last-mtime mtime) (pair mtime (config-read source variables env)) config)))
+            (const (pair 0 config)))))
+      (c get-config (pair 0 #f))))
+
   (define*
-    (upcoming time past-n future-n #:key event-ids id-n config config-variables config-env
-      interval-units
-      event-functions)
-    (events-reduce-range
-      (events-add-diff-start time
-        (upcoming-events time past-n
-          future-n #:event-ids
-          event-ids #:config
-          config #:config-variables
-          config-variables #:config-env
-          config-env #:interval-units interval-units #:event-functions event-functions))
+    (upcoming time past-n future-n #:key config event-ids id-n interval-units event-functions)
+    "procedure:{procedure:{state -> (state (diff . event) ...)} initial-state -> any} integer integer _ ... -> any
+     return a procedure that when called returns a state object and an event series,
+     the event series is also cached and only relevant parts are recalculated where necessary.
+     the resulting procedure creates much less processing overhead for repeated calls than \"upcoming-events\""
+    (upcoming-reduce
+      (upcoming-events time past-n
+        future-n #:event-ids
+        event-ids #:config config #:interval-units interval-units #:event-functions event-functions)
       time past-n future-n id-n))
 
   (define-as upcoming-config-variables alist-q

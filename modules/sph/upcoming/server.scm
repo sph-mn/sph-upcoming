@@ -26,7 +26,8 @@
             ( ( (quote upcoming) (? integer? time) (? integer? past-n)
                 (? integer? future-n) config event-ids id-n)
               (write
-                (upcoming time past-n future-n #:config config #:event-ids event-ids #:id-n id-n)
+                (upcoming time past-n
+                  future-n #:config (upcoming-config-get config) #:event-ids event-ids #:id-n id-n)
                 client))
             (else (write (pair (q invalid-query) query) client)))
           (close client)))
