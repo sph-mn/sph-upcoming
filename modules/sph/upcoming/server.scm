@@ -9,8 +9,10 @@
     (sph alist)
     (sph io)
     (sph list)
+    (sph one)
     (sph server)
-    (sph upcoming))
+    (sph upcoming)
+    (only (guile) port-closed?))
 
   (define upcoming-server-path "/tmp/upcoming-server")
 
@@ -21,9 +23,13 @@
       (l (client)
         (let (query (read client))
           (match query
-            ( ( (quote upcoming-events) config time past-n future-n)
-              (write (pair (q upcoming-events) (upcoming-events config time past-n future-n))
-                client))
+            ( ( (quote upcoming-events-diff) (? integer? time) (? integer? past-n)
+                (? integer? future-n) config)
+              (write (upcoming-events-diff time past-n future-n #:config config) client))
+            ( ( (quote upcoming) (? integer? interval) (? integer? past-n)
+                (? integer? future-n) config)
+              (upcoming (l (events) (and (not (port-closed? client)) (write events client)))
+                interval past-n future-n #:config config))
             (else (write (pair (q invalid-query) query) client)))
           (close client)))
       (server-create-bound-socket (or path upcoming-server-path)) 0))

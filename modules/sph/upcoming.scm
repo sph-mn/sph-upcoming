@@ -9,7 +9,8 @@
     upcoming-config-variables
     upcoming-doc-config-example
     upcoming-doc-config-syntax
-    upcoming-events)
+    upcoming-events
+    upcoming-events-diff)
   (import
     (ice-9 regex)
     (rnrs eval)
@@ -25,12 +26,9 @@
     (sph time string)
     (sph time utc)
     (sph two)
+    (except (srfi srfi-1) map)
     (only (sph io read-write) rw-string->list)
     (only (sph one) procedure->cached-procedure))
-
-  ; possible enhancements
-  ;   allow event ids as start/end, which uses the references events start or end respectively
-  ;   allow and/or/not combinations for event dependencies
 
   (define upcoming-doc-config-example
     "28.8 meeting weekday 1
@@ -105,7 +103,13 @@
       (map (l (a) (apply (l (time id . options) (apply alist (q id) id (q start) time options)) a))
         line-data)))
 
-  (define (map-offsets start end proc) (map-integers (+ 1 (- end start)) proc))
+  (define* (config-get config #:optional variables env)
+    (if (string? config)
+      (config-read config (or variables upcoming-config-variables) (or env upcoming-config-env))
+      config))
+
+  (define (map-offsets start end proc)
+    (map-integers (+ 1 (- end start)) (l (n) (proc (+ n start)))))
 
   (define* (event-day time offset-start #:optional offset-end)
     "integer [integer/false] -> list:event-series"
@@ -236,19 +240,41 @@
               get-event-by-id get-event-series-by-id interval-units)
             event-functions)))))
 
+  (define (events-add-diff-start time a) (map (l (a) (pair (- (event-start a) time) a)) a))
+
+  (define (events-reduce-range a time prev-n next-n)
+    (consecutive (l (a) (< (first a) 0)) (list-sort-with-accessor < first a)
+      (l (previous next)
+        (append (reverse (take* (abs prev-n) (reverse previous))) (take* (abs next-n) next)))))
+
   (define*
-    (upcoming-events config time past-n future-n #:key config-variables config-env interval-units
+    (upcoming-events time past-n future-n #:key config config-variables config-env interval-units
       event-functions)
-    "list/string:path integer integer integer _ ... -> (vector:event ...)"
+    "list/string:path integer:utc-seconds integer integer list:alist environment hashtable -> (vector:event ...)
+     create a list of events in range past-n to future-n, which select the next and previous n occurences of each available event.
+     example:
+     (upcoming-events #f (ns->s (utc-current)) 0 1)"
     (let
       (ef-list
-        (create-event-functions (config-get config config-variables config-env)
+        (create-event-functions
+          (config-get (or config upcoming-config-path)
+            (or config-variables upcoming-config-variables) (or config-env upcoming-config-env))
           (or event-functions upcoming-event-functions) (or interval-units upcoming-interval-units)
           (compose first pair)))
       (append-map (l (ef) (ef time past-n future-n)) ef-list)))
 
-  (define (upcoming-add-diff-start time events)
-    (map (l (a) (pair (abs (- time (event-start a))) a)) events))
+  (define*
+    (upcoming-events-diff time past-n future-n #:key config config-variables config-env
+      interval-units
+      event-functions)
+    (events-reduce-range
+      (events-add-diff-start time
+        (upcoming-events time past-n
+          future-n #:config
+          config #:config-variables
+          config-variables #:config-env
+          config-env #:interval-units interval-units #:event-functions event-functions))
+      time past-n future-n))
 
   (define-as upcoming-config-variables alist-q
     uptime (compose s->ks os-seconds-since-boot) uptime-start (compose s->ks os-seconds-at-boot))
@@ -261,7 +287,7 @@
   (define default-duration 200)
   (define duration-day utc-seconds-day)
   (define duration-week (* 7 utc-seconds-day))
-  (define default-config-env (environment (q (sph))))
+  (define upcoming-config-env (environment (q (sph))))
   (define-record event id start end data)
 
   (define upcoming-event-functions
@@ -276,34 +302,36 @@
   (define upcoming-interval-units
     (ht-create-symbol day duration-day week duration-week kilosecond 1000 second 1))
 
-  (define* (config-get config #:optional variables env)
-    (if (string? config)
-      (config-read config (or variables upcoming-config-variables) (or env default-config-env))
-      config))
-
   (define*
-    (upcoming proc interval #:key config config-variables config-env interval-units event-functions)
-    "call proc each interval seconds with a list of upcoming events.
+    (upcoming proc interval past-n future-n #:key config config-variables config-env interval-units
+      event-functions)
+    "call proc each interval seconds with a list of events.
      if proc returns false, stop"
     (let*
       ( (get-config
           (let
             ( (variables (or config-variables upcoming-config-variables))
-              (env (or config-env default-config-env)) (source (or config upcoming-config-path)))
+              (env (or config-env upcoming-config-env)) (source (or config upcoming-config-path)))
             (if (string? source)
               (l (config)
                 (let ((last-mtime (first config)) (mtime (stat:mtime (stat source))))
                   (if (< last-mtime mtime) (pair mtime (config-read source variables env)) config)))
-              identity)))
+              (const (pair 0 config)))))
         (get-events
-          (l (config)
-            (list-sort-with-accessor < event-start
-              (upcoming-events (tail config) (ns->s (utc-current))
-                0 1 #:interval-units interval-units #:event-functions event-functions))))
-        (config (get-config config)))
-      (let loop ((events (get-events config)) (config config))
-        (if (proc events)
-          (begin (sleep interval)
-            (if (null? events) (let (config (get-config config)) (loop (get-events config) config))
-              events))
-          events)))))
+          (l (config time)
+            (events-add-diff-start time
+              (upcoming-events time past-n
+                future-n #:config
+                (tail config) #:interval-units interval-units #:event-functions event-functions))))
+        (update-events
+          (l (a time) (events-reduce-range (events-add-diff-start time a) time past-n future-n)))
+        (get-time (nullary (ns->s (utc-current)))) (config (get-config (pair 0 config)))
+        (time (get-time)))
+      (let loop ((time time) (events (get-events config time)) (config config))
+        (let (events (update-events (map tail events) time))
+          (if (proc events)
+            (begin (sleep interval)
+              (if (null? events)
+                (let (config (get-config config)) (loop (get-time) (get-events config time) config))
+                (loop (get-time) events config)))
+            events))))))
