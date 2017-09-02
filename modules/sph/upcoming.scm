@@ -9,8 +9,7 @@
     upcoming-config-variables
     upcoming-doc-config-example
     upcoming-doc-config-syntax
-    upcoming-events
-    upcoming-events-diff)
+    upcoming-events)
   (import
     (ice-9 regex)
     (rnrs eval)
@@ -41,20 +40,20 @@
   (define upcoming-doc-config-syntax
     "line:event
      time id option/value ...
-         time-date: string:\"yyyy-mm-dd\"
-         time-day: integer:day-ks
-         time: time-day/time-date/\"time-date time-day\"
-         id: symbol
-         options
+       time-date: string:\"yyyy-mm-dd\"
+       time-day: integer:day-ks
+       time: time-day/time-date/\"time-date time-day\"
+       id: symbol
+       options
      end: time
      duration: integer
      interval: integer
      interval-unit: seconds/id/(id ...)
      weekday: integer/(integer ...)
      title: string
-     depends: id/(id ...)
+     depends: id/(id ...)/(or/and/not depends ...)
      start-depends: id/(id ...)
-         default variables
+       default variables
      uptime
      uptime-start")
 
@@ -63,7 +62,7 @@
      event definition supports most natural qualifiers \"each second day\" \"only mondays\"
      and a configuration file syntax with one event definition per line")
 
-  (define (ks->s a) (inexact->exact (* 1000 a)))
+  (define (ks->s a) (inexact->exact (truncate (* 1000 a))))
   (define (s->ks a) (/ a 1000))
   (define (config-read-time-error data) (raise (pair (q invalid-time-format) data)))
 
@@ -118,13 +117,13 @@
         (let (start (+ (* offset duration-day) (ns->s (utc-start-day (s->ns time)))))
           (vector (q day) start (+ start duration-day))))))
 
-  (define (event-weekday-proc weekday-offset)
+  (define (event-weekday-proc weekday)
     (l* (time offset-start #:optional offset-end) "integer [integer/false] -> list:event-series"
       (map-offsets offset-start (or offset-end offset-start)
         (l (offset)
           (let
             (start
-              (+ (* weekday-offset duration-day) (* offset duration-week)
+              (+ (* weekday duration-day) (* offset duration-week)
                 (ns->s (utc-start-week (s->ns time)))))
             (vector (q day) start (+ start duration-day)))))))
 
@@ -135,8 +134,10 @@
             "integer/(integer ...) -> (symbol:id ...)
             get the default event ids for weekdays identified by numbers in the weekday option"
             (if (and weekday (or (integer? weekday) (every integer? weekday)))
-              (map (l (a) (string->symbol (string-append "weekday-" (number->string a))))
-                (any->list weekday))
+              (list
+                (pair (q or)
+                  (map (l (a) (string->symbol (string-append "weekday-" (number->string a))))
+                    (any->list weekday))))
               null)))
         (get-interval-seconds
           (l (interval unit units)
@@ -148,25 +149,27 @@
             "event-function (symbol:id ...) procedure -> event-function
             remove events that fall outside the duration of all their dependent events"
             (l* a
-              (let (depends-series (map (l (id) (apply get-event-series-by-id id a)) depends))
+              (let (events (apply ef a))
                 (filter
                   (l (event)
                     (let ((start (event-start event)) (end (event-end event)))
-                      ; depend combinations (and/or/not) would be evaluated here when implemented
-                      (every
-                        (l (a)
-                          (any
-                            (l (depend-event)
-                              (and (<= (event-start depend-event) (event-start event))
-                                (>= (event-end depend-event) (event-end event))))
-                            a))
-                        depends-series)))
-                  (apply ef a))))))
+                      (list-set-match-iterate
+                        (l (depends-id) "filter events that fit in the dependent event series"
+                          (let (depends-series (apply get-event-series-by-id depends-id a))
+                            ; it is sufficient if it falls into the duration of any occurence of the dependent event
+                            (any
+                              (l (depends-event)
+                                (and (<= (event-start depends-event) start)
+                                  (>= (event-end depends-event) end)))
+                              depends-series)))
+                        depends)))
+                  events)))))
         (create-event-function
           (l
             (id config-start config-end
-              interval interval-unit duration start-base depends get-event-by-id interval-units data)
-            "_ ... -> procedure"
+              interval interval-unit duration start-base get-event-by-id interval-units data)
+            "_ ... -> procedure
+            create a function that returns an event series for one event-source"
             (config-read-times (list config-start config-end)
               (l (start-date start-relative start-full? end-date end-relative end-full?)
                 (if start-full?
@@ -210,22 +213,23 @@
                         start-base-ef))))))))
         (create-event-functions
           (l (config event-functions get-event-by-id get-event-series-by-id interval-units)
+            "for each event definition, create functions that create a series of events"
             (map
               (l (a)
                 (alist-bind a
                   (id start end interval interval-unit duration weekday depends start-base)
                   (let*
                     ( (depends
-                        (append (get-weekday-depends weekday)
-                          (or (and depends (any->list depends)) default-depends)))
+                        (pairs (q and)
+                          (append (get-weekday-depends weekday)
+                            (if depends (list (any->list depends)) null))))
                       (ef
                         (filter-depends
                           (create-event-function id start
                             end interval
                             (or interval-unit (q kilosecond))
                             (or (and duration (ks->s duration)) default-duration)
-                            (or start-base default-start-base) depends
-                            get-event-by-id interval-units a)
+                            (or start-base default-start-base) get-event-by-id interval-units a)
                           depends get-event-series-by-id)))
                     (ht-set! event-functions id ef) ef)))
               config))))
@@ -240,15 +244,38 @@
               get-event-by-id get-event-series-by-id interval-units)
             event-functions)))))
 
-  (define (events-add-diff-start time a) (map (l (a) (pair (- (event-start a) time) a)) a))
+  (define (events-keep-only-n-of-ids a n)
+    "((integer . vector:event) ...) -> ((integer . vector:event) ...)
+     keep only the first n events for each unique id"
+    (let (counter (ht-create-symbol))
+      (filter
+        (l (a)
+          (let* ((id (event-id (tail a))) (count (ht-ref counter id)))
+            (if count (and (< count n) (begin (ht-set! counter id (+ 1 count)) #t))
+              (begin (ht-set! counter id 1) #t))))
+        a)))
 
-  (define (events-reduce-range a time prev-n next-n)
-    (consecutive (l (a) (< (first a) 0)) (list-sort-with-accessor < first a)
-      (l (previous next)
-        (append (reverse (take* (abs prev-n) (reverse previous))) (take* (abs next-n) next)))))
+  (define (events-add-diff-start time a)
+    "integer (vector:event ...) -> ((integer . vector:event) ...)
+     prepend the difference between event-start and time to event as a pair"
+    (map (l (a) (pair (- (event-start a) time) a)) a))
+
+  (define (events-reduce-range a time prev-n next-n id-n)
+    "events-with-diff _ ... -> events-with-diff
+     only leave prev-n events before time and next-n events after time,
+     and for each direction only id-n repetitions of the same event"
+    (let (n-of-ids (if id-n (l (a) (events-keep-only-n-of-ids a id-n)) identity))
+      (consecutive (l (a) (< (first a) 0)) (list-sort-with-accessor < first a)
+        (l (previous next)
+          (append (reverse (take* (abs prev-n) (n-of-ids (reverse previous))))
+            (take* (abs next-n) (n-of-ids next)))))))
+
+  (define (events-filter-ids ids a)
+    (if (null? ids) a (filter (l (a) (containsq? ids (event-id a))) a)))
 
   (define*
-    (upcoming-events time past-n future-n #:key config config-variables config-env interval-units
+    (upcoming-events time past-n future-n #:key event-ids config config-variables config-env
+      interval-units
       event-functions)
     "list/string:path integer:utc-seconds integer integer list:alist environment hashtable -> (vector:event ...)
      create a list of events in range past-n to future-n, which select the next and previous n occurences of each available event.
@@ -261,32 +288,33 @@
             (or config-variables upcoming-config-variables) (or config-env upcoming-config-env))
           (or event-functions upcoming-event-functions) (or interval-units upcoming-interval-units)
           (compose first pair)))
-      (append-map (l (ef) (ef time past-n future-n)) ef-list)))
+      (events-filter-ids (or event-ids null)
+        (append-map (l (ef) (ef time past-n future-n)) ef-list))))
 
   (define*
-    (upcoming-events-diff time past-n future-n #:key config config-variables config-env
+    (upcoming time past-n future-n #:key event-ids id-n config config-variables config-env
       interval-units
       event-functions)
     (events-reduce-range
       (events-add-diff-start time
         (upcoming-events time past-n
-          future-n #:config
+          future-n #:event-ids
+          event-ids #:config
           config #:config-variables
           config-variables #:config-env
           config-env #:interval-units interval-units #:event-functions event-functions))
-      time past-n future-n))
+      time past-n future-n id-n))
 
   (define-as upcoming-config-variables alist-q
     uptime (compose s->ks os-seconds-since-boot) uptime-start (compose s->ks os-seconds-at-boot))
 
   (define upcoming-config-path (string-append (getenv "HOME") "/.config/sph/upcoming"))
   (define time-regexp (make-regexp "^([0-9]{4}-[0-1][0-9]-[0-3][0-9])( [0-9.]+)?$"))
-  (define default-depends (list (q day)))
   (define default-start-base (list (q day)))
   (define default-interval-unit (q day))
   (define default-duration 200)
   (define duration-day utc-seconds-day)
-  (define duration-week (* 7 utc-seconds-day))
+  (define duration-week (* 7 duration-day))
   (define upcoming-config-env (environment (q (sph))))
   (define-record event id start end data)
 
@@ -300,38 +328,4 @@
       weekday-6 (event-weekday-proc 5) weekday-7 (event-weekday-proc 6)))
 
   (define upcoming-interval-units
-    (ht-create-symbol day duration-day week duration-week kilosecond 1000 second 1))
-
-  (define*
-    (upcoming proc interval past-n future-n #:key config config-variables config-env interval-units
-      event-functions)
-    "call proc each interval seconds with a list of events.
-     if proc returns false, stop"
-    (let*
-      ( (get-config
-          (let
-            ( (variables (or config-variables upcoming-config-variables))
-              (env (or config-env upcoming-config-env)) (source (or config upcoming-config-path)))
-            (if (string? source)
-              (l (config)
-                (let ((last-mtime (first config)) (mtime (stat:mtime (stat source))))
-                  (if (< last-mtime mtime) (pair mtime (config-read source variables env)) config)))
-              (const (pair 0 config)))))
-        (get-events
-          (l (config time)
-            (events-add-diff-start time
-              (upcoming-events time past-n
-                future-n #:config
-                (tail config) #:interval-units interval-units #:event-functions event-functions))))
-        (update-events
-          (l (a time) (events-reduce-range (events-add-diff-start time a) time past-n future-n)))
-        (get-time (nullary (ns->s (utc-current)))) (config (get-config (pair 0 config)))
-        (time (get-time)))
-      (let loop ((time time) (events (get-events config time)) (config config))
-        (let (events (update-events (map tail events) time))
-          (if (proc events)
-            (begin (sleep interval)
-              (if (null? events)
-                (let (config (get-config config)) (loop (get-time) (get-events config time) config))
-                (loop (get-time) events config)))
-            events))))))
+    (ht-create-symbol day duration-day week duration-week kilosecond 1000 second 1)))

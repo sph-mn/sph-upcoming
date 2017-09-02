@@ -10,7 +10,7 @@
 ; possible enhancements
 ;   allow event ids as start/end, which uses the references events start or end respectively
 ;   allow and/or/not combinations for event dependencies
-;   remove duplicate event-id timepoints in output for more meaningful output
+;   contain only one of each event in output for more meaningful output
 
 (define-as upcoming-cli-description-source list-qq
   "filter events in time with event definitions from a configuration file."
@@ -32,15 +32,6 @@
 (define upcoming-cli-description (prefix-tree-text upcoming-cli-description-source))
 (define (client-get-one query) (upcoming-client (l (server) (write query server) (read server))))
 
-(define (client-get-continuously query result proc)
-  (upcoming-client
-    (l (server) (write query server)
-      (let loop ((response (read server)) (result result))
-        (apply
-          (l (continue? result)
-            (if (or (eof-object? response) (not continue?)) result (loop (read server) result)))
-          (proc response result))))))
-
 (define (upcoming-cli)
   (let
     (options
@@ -52,70 +43,42 @@
               #:value-optional? #t #:type integer #:description "select up to n upcoming events")
             (previous #:names #\p
               #:value-optional? #t #:type integer #:description "select up to n previous events")
-            ;(countdown #:names #\d #:description "count down to next events")
-            (list #:names #\l #:description "list events")
-            (diff #:description "display a new list relative to current time each interval seconds")
-            ;(countup #:names #\u #:description "count up from the start of current events")
             (config #:names #\c
               #:value-required? #t #:description "use a different configuration file" #:type string)
+            (limit #:value-required? #t
+              #:description "return only n repetitions of each unique event id" #:type integer)
             (interval #:value-required? #t
               #:type integer
               #:description "interval in seconds for functions that give continuous output")
             ((event-ids ...))
             (server #:names #\s #:description "start a server that can answer event queries")))))
-    (alist-bind options (server next previous countdown countup config interval event-ids diff)
+    (alist-bind options (limit server next previous countdown countup config interval event-ids)
       (if server (upcoming-server)
         (let
-          ( (o-list (alist-ref-q options list))
-            (previous (if previous (* -1 (if (integer? previous) previous 1)) 0))
+          ( (previous (if previous (* -1 (if (integer? previous) previous 1)) 0))
             (next (if next (if (integer? next) next 1) 1)))
-          (cond
-            (o-list
-              (let*
-                ( (time (ns->s (utc-current)))
-                  (data
-                    (client-get-one
-                      (list (q upcoming-events-diff) time
-                        previous next (or config upcoming-config-path)))))
-                (if (or (eof-object? data) (null? data)) (display-line "")
-                  (each
-                    (l (a)
-                      (let
-                        ( (now-date-prefix (string-append (utc->ymd (s->ns time)) "_"))
-                          (diff (first a)) (a (tail a)))
-                        (display
-                          (string-append (number->string diff) " "
-                            (string-drop-prefix-if-exists now-date-prefix
-                              (utc->ymd-ks (s->ns (event-start a))))
-                            " "
-                            (string-drop-prefix-if-exists now-date-prefix
-                              (utc->ymd-ks (s->ns (event-end a))))
-                            " " (symbol->string (event-id a)) "\n"))))
-                    data))))
-            (diff
-              (client-get-continuously
-                (list (q upcoming) (or interval 3) previous next (or config upcoming-config-path))
-                (list)
-                (l (data result)
-                  (if (eof-object? data) (list #f result)
-                    (if (null? data) (begin (display-line "") (list #t result))
-                      (list #t
-                        (begin
-                          (each
-                            (l (a)
-                              (let
-                                ( (now-date-prefix (string-append (utc->ymd (utc-current)) "_"))
-                                  (diff (first a)) (a (tail a)))
-                                (display
-                                  (string-append (number->string diff) " "
-                                    (string-drop-prefix-if-exists now-date-prefix
-                                      (utc->ymd-ks (s->ns (event-start a))))
-                                    " "
-                                    (string-drop-prefix-if-exists now-date-prefix
-                                      (utc->ymd-ks (s->ns (event-end a))))
-                                    " " (symbol->string (event-id a)) "\n"))))
-                            data)
-                          (newline) result)))))))
-            (else #f)))))))
+          (let*
+            ( (time (ns->s (utc-current)))
+              (data
+                (client-get-one
+                  (list (q upcoming) time
+                    previous next
+                    (or config upcoming-config-path) (and event-ids (map string->symbol event-ids))
+                    limit))))
+            (if (or (eof-object? data) (null? data)) (display-line "")
+              (each
+                (l (a)
+                  (let
+                    ( (now-date-prefix (string-append (utc->ymd (s->ns time)) "_")) (diff (first a))
+                      (a (tail a)))
+                    (display
+                      (string-append (number->string diff) " "
+                        (string-drop-prefix-if-exists now-date-prefix
+                          (utc->ymd-ks (s->ns (event-start a))))
+                        " "
+                        (string-drop-prefix-if-exists now-date-prefix
+                          (utc->ymd-ks (s->ns (event-end a))))
+                        " " (symbol->string (event-id a)) "\n"))))
+                data))))))))
 
 (upcoming-cli)

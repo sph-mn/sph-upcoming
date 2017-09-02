@@ -23,13 +23,11 @@
       (l (client)
         (let (query (read client))
           (match query
-            ( ( (quote upcoming-events-diff) (? integer? time) (? integer? past-n)
-                (? integer? future-n) config)
-              (write (upcoming-events-diff time past-n future-n #:config config) client))
-            ( ( (quote upcoming) (? integer? interval) (? integer? past-n)
-                (? integer? future-n) config)
-              (upcoming (l (events) (and (not (port-closed? client)) (write events client)))
-                interval past-n future-n #:config config))
+            ( ( (quote upcoming) (? integer? time) (? integer? past-n)
+                (? integer? future-n) config event-ids id-n)
+              (write
+                (upcoming time past-n future-n #:config config #:event-ids event-ids #:id-n id-n)
+                client))
             (else (write (pair (q invalid-query) query) client)))
           (close client)))
       (server-create-bound-socket (or path upcoming-server-path)) 0))
