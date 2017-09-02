@@ -78,7 +78,7 @@ $ upcoming --next=6 --limit=1
 132.96 2017-09-04_28.80 2017-09-04_29.00 resource-meeting
 ```
 
-the first number is the number of kiloseconds from now until the event starts. the following to space separated paths are the start and end times and the last part is the id
+the first number is the number of kiloseconds from now until the event starts. the following space separated parts are the start and end time and lastly the event id
 
 # setup
 ## dependencies
@@ -86,7 +86,9 @@ the first number is the number of kiloseconds from now until the event starts. t
 * sph-lib
 
 ## install
+```
 ./exe/install
+```
 
 see ./exe/install --help for more options
 
