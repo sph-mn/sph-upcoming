@@ -29,10 +29,6 @@
 
   (define-as upcoming-cli-about-source list-qq
     ("description" (unquote-splicing upcoming-cli-description-source))
-    ("why use a server?"
-      "the startup is quite processing intensive, particularly when calculating repeating events, event dependencies and filtering them."
-      "since a main feature of sph-upcoming is to give frequent continuous updates about nearing events, ideally in real-time,"
-      "pre-initialising the application on the server-side and then just querying it saves a lot of overhead")
     ("configuration file syntax" (unquote upcoming-doc-config-syntax))
     ("example configuration file" (unquote upcoming-doc-config-example)))
 
