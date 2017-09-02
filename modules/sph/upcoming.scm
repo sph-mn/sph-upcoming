@@ -7,6 +7,8 @@
     upcoming
     upcoming-config-path
     upcoming-config-variables
+    upcoming-doc-config-example
+    upcoming-doc-config-syntax
     upcoming-events)
   (import
     (ice-9 regex)
@@ -26,33 +28,37 @@
     (only (sph io read-write) rw-string->list)
     (only (sph one) procedure->cached-procedure))
 
-  (define doc-example-config
+  ; possible enhancements
+  ;   allow event ids as start/end, which uses the references events start or end respectively
+  ;   allow and/or/not combinations for event dependencies
+
+  (define upcoming-doc-config-example
     "28.8 meeting weekday 1
      24 eat interval 10 duration 0.6
      72 sleep
-     ,(or login-time 25) work end 55 weekday (1 2 3 4)
+     ,(or uptime 25) work end 55 weekday (1 2 3 4)
      \"2017-12-13\" test title \"test title\"
      \"2017-12-13 28.8\" test-2 end 30 title \"test-2 title\"")
 
-  (define doc-config-syntax
-    "configuration format
-     line:event
-       time id option/value ...
-     time-date: string:\"yyyy-mm-dd\"
-     time-day: integer:day-ks
-     time: time-day/time-date/\"time-date time-day\"
-     id: symbol
-     options
-       end: time
-       duration: integer
-       interval: integer
-       interval-unit: seconds/id/(id ...)
-       weekday: integer/(integer ...)
-       title: string
-       depends: id/(id ...)
-       start-depends: id/(id ...)
-     available variables
-       login-time")
+  (define upcoming-doc-config-syntax
+    "line:event
+     time id option/value ...
+         time-date: string:\"yyyy-mm-dd\"
+         time-day: integer:day-ks
+         time: time-day/time-date/\"time-date time-day\"
+         id: symbol
+         options
+     end: time
+     duration: integer
+     interval: integer
+     interval-unit: seconds/id/(id ...)
+     weekday: integer/(integer ...)
+     title: string
+     depends: id/(id ...)
+     start-depends: id/(id ...)
+         default variables
+     uptime
+     uptime-start")
 
   (define sph-upcoming-description
     "define when events will occur and filter events.
@@ -101,21 +107,21 @@
 
   (define (map-offsets start end proc) (map-integers (+ 1 (- end start)) proc))
 
-  (define* (event-day now offset-start #:optional offset-end)
+  (define* (event-day time offset-start #:optional offset-end)
     "integer [integer/false] -> list:event-series"
     (map-offsets offset-start (or offset-end offset-start)
       (l (offset)
-        (let (start (+ (* offset duration-day) (ns->s (utc-start-day now))))
+        (let (start (+ (* offset duration-day) (ns->s (utc-start-day (s->ns time)))))
           (vector (q day) start (+ start duration-day))))))
 
   (define (event-weekday-proc weekday-offset)
-    (l* (now offset-start #:optional offset-end) "integer [integer/false] -> list:event-series"
+    (l* (time offset-start #:optional offset-end) "integer [integer/false] -> list:event-series"
       (map-offsets offset-start (or offset-end offset-start)
         (l (offset)
           (let
             (start
               (+ (* weekday-offset duration-day) (* offset duration-week)
-                (ns->s (utc-start-week now))))
+                (ns->s (utc-start-week (s->ns time)))))
             (vector (q day) start (+ start duration-day)))))))
 
   (define create-event-functions
@@ -138,15 +144,18 @@
             "event-function (symbol:id ...) procedure -> event-function
             remove events that fall outside the duration of all their dependent events"
             (l* a
-              (let
-                (depends-series (append-map (l (id) (apply get-event-series-by-id id a)) depends))
+              (let (depends-series (map (l (id) (apply get-event-series-by-id id a)) depends))
                 (filter
                   (l (event)
                     (let ((start (event-start event)) (end (event-end event)))
-                      (any
-                        (l (depend-event)
-                          (and (<= (event-start depend-event) (event-start event))
-                            (>= (event-end depend-event) (event-end event))))
+                      ; depend combinations (and/or/not) would be evaluated here when implemented
+                      (every
+                        (l (a)
+                          (any
+                            (l (depend-event)
+                              (and (<= (event-start depend-event) (event-start event))
+                                (>= (event-end depend-event) (event-end event))))
+                            a))
                         depends-series)))
                   (apply ef a))))))
         (create-event-function
@@ -167,10 +176,10 @@
                           data))))
                   ; given start time is relative to another event
                   (let (start-base-ef (map get-event-by-id (any->list start-base)))
-                    (l* (now offset-start #:optional offset-end)
+                    (l* (time offset-start #:optional offset-end)
                       (append-map
                         (l (ef)
-                          (let (base-events (ef now offset-start offset-end))
+                          (let (base-events (ef time offset-start offset-end))
                             (append-map
                               (l (base-event)
                                 (let*
@@ -228,8 +237,7 @@
             event-functions)))))
 
   (define*
-    (upcoming-get-events config time past-n future-n #:key config-variables config-env
-      interval-units
+    (upcoming-events config time past-n future-n #:key config-variables config-env interval-units
       event-functions)
     "list/string:path integer integer integer _ ... -> (vector:event ...)"
     (let
@@ -275,15 +283,27 @@
 
   (define*
     (upcoming proc interval #:key config config-variables config-env interval-units event-functions)
-    "call proc in interval with a list of upcoming events.
+    "call proc each interval seconds with a list of upcoming events.
      if proc returns false, stop"
     (let*
-      ( (config (config-get (or config upcoming-config-path) config-variables config-env))
+      ( (get-config
+          (let
+            ( (variables (or config-variables upcoming-config-variables))
+              (env (or config-env default-config-env)) (source (or config upcoming-config-path)))
+            (if (string? source)
+              (l (config)
+                (let ((last-mtime (first config)) (mtime (stat:mtime (stat source))))
+                  (if (< last-mtime mtime) (pair mtime (config-read source variables env)) config)))
+              identity)))
         (get-events
-          (nullary
+          (l (config)
             (list-sort-with-accessor < event-start
-              (upcoming-get-events config (ns->s (utc-current))
-                0 1 #:interval-units interval-units #:event-functions event-functions)))))
-      (let loop ((events (get-events)))
-        (if (proc events) (begin (sleep interval) (loop (if (null? events) (get-events) events)))
+              (upcoming-events (tail config) (ns->s (utc-current))
+                0 1 #:interval-units interval-units #:event-functions event-functions))))
+        (config (get-config config)))
+      (let loop ((events (get-events config)) (config config))
+        (if (proc events)
+          (begin (sleep interval)
+            (if (null? events) (let (config (get-config config)) (loop (get-events config) config))
+              events))
           events)))))
