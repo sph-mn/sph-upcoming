@@ -30,12 +30,11 @@
                 (upcoming time past-n
                   future-n #:config (upcoming-config-get config) #:event-ids event-ids #:id-n id-n)
                 client))
-            (else (write (pair (q invalid-query) query) client)))
-          (close client)))
-      (server-create-bound-socket (or path upcoming-server-path)) 0))
+            (else (write (pair (q invalid-query) query) client)))))
+      (socket-create-bound (or path upcoming-server-path)) 1))
 
   (define* (upcoming-client proc #:optional path)
     (let*
       ( (socket (socket PF_UNIX SOCK_STREAM 0))
-        (server (connect socket AF_UNIX (or path upcoming-server-path))) (result (proc socket)))
+        (result (and (connect socket AF_UNIX (or path upcoming-server-path)) (proc socket))))
       (close socket) result)))
