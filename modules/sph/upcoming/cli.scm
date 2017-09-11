@@ -34,7 +34,10 @@
 
   (define upcoming-cli-about (prefix-tree-text upcoming-cli-about-source))
   (define upcoming-cli-description (prefix-tree-text upcoming-cli-description-source))
-  (define (client-get-one query) (upcoming-client (l (server) (write query server) (read server))))
+
+  (define (client-get-one query)
+    (upcoming-client (l (server) (put-datum server query) (get-datum server))))
+
   (define (s->ks-string a) (simple-format-number a 3 2))
 
   (define cli
