@@ -34,10 +34,6 @@
 
   (define upcoming-cli-about (prefix-tree-text upcoming-cli-about-source))
   (define upcoming-cli-description (prefix-tree-text upcoming-cli-description-source))
-
-  (define (client-get-one query)
-    (upcoming-client (l (server) (put-datum server query) (get-datum server))))
-
   (define (s->ks-string a) (simple-format-number a 3 2))
 
   (define cli
@@ -46,44 +42,32 @@
       #:options
       (list-q
         (next #:names #\n
-          #:value-optional? #t #:type integer #:description "select up to n upcoming events")
+          #:value-optional? #t #:type integer #:description "select up to n future events")
         (previous #:names #\p
-          #:value-optional? #t #:type integer #:description "select up to n previous events")
-        (config #:names #\c
-          #:value-required? #t #:description "use a different configuration file" #:type string)
+          #:value-optional? #t #:type integer #:description "select up to n past events")
+        (active #:names #\c
+          #:value-optional? #t #:type integer #:description "select up to n active events")
+        (config #:value-required? #t
+          #:description "use a different configuration file for the server" #:type string)
         (limit #:value-required? #t
-          #:description "return only n repetitions of each unique event id" #:type integer)
+          #:description "include at most n repetitions of distinct event ids" #:type integer)
         ((event-ids ...))
-        (server #:names #\s #:description "start a server that can answer event queries"))))
+        (server #:names #\s #:description "start a server that answers event queries"))))
+
+  (define (display-event-list a)
+    ; passed-since-start left-till-end duration start end id
+    (each (l (a) (debug-log a)) a))
 
   (define (upcoming-cli . program-arguments)
-    (let (options (apply cli program-arguments))
-      (alist-bind options (limit server next previous countdown countup config interval event-ids)
-        (if server (upcoming-server)
-          (if (file-exists? upcoming-server-path)
-            (let
-              ( (previous (if previous (* -1 (if (integer? previous) previous 1)) 0))
-                (next (if next (if (integer? next) next 1) 1)))
-              (let*
-                ( (time (ns->s (utc-current)))
-                  (data
-                    (client-get-one
-                      (list (q upcoming) time
-                        previous next
-                        (or config upcoming-config-path)
-                        (and event-ids (map string->symbol event-ids)) limit))))
-                (if (or (eof-object? data) (null? data)) (display-line "")
-                  (each
-                    (l (a)
-                      (let
-                        ( (now-date-prefix (string-append (utc->ymd (s->ns time)) "_"))
-                          (diff (first a)) (a (tail a)))
-                        (display
-                          (string-append (s->ks-string diff) " "
-                            (string-drop-prefix-if-exists now-date-prefix
-                              (utc->ymd-ks (s->ns (event-start a))))
-                            " "
-                            (string-drop-prefix-if-exists now-date-prefix
-                              (utc->ymd-ks (s->ns (event-end a))))
-                            " " (symbol->string (event-id a)) "\n"))))
-                    data))))))))))
+    (alist-bind (apply cli program-arguments)
+      (limit server next previous active countdown countup config interval event-ids)
+      (cond (server (upcoming-server))
+        ( (file-exists? upcoming-server-path)
+          (let*
+            ( (previous (if previous (* -1 (if (integer? previous) previous 1)) 0))
+              (next (if next (if (integer? next) next 1) 1)) (time (ns->s (utc-current)))
+              (data
+                (upcoming-client-upcoming time previous
+                  active next limit (and event-ids (map string->symbol event-ids)))))
+            (if (not (or (eof-object? data) (null? data))) (display-event-list data))))
+        (else (display-line "invalid call"))))))
