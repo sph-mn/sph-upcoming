@@ -74,9 +74,12 @@
        unit: intervals are specified as repetition of a unit of time duration")
 
   (define upcoming-config-path (string-append (getenv "HOME") "/.config/sph/upcoming"))
+  (define hms-pattern "[0-9]{1,2}(:[0-9]{1,2}){0,2}")
+  (define date-pattern "[0-9]{4}-[0-1][0-9]-[0-3][0-9]")
+  (define ks-pattern "[0-9.]+")
 
   (define read-ymd-ks
-    (let (regexp (make-regexp "^([0-9]{4}-[0-1][0-9]-[0-3][0-9])( [0-9.]+)?$"))
+    (let (regexp (make-regexp (string-append "^(" date-pattern ")( " ks-pattern ")?$")))
       (l (a) "string -> false/integer:utc-time"
         (and-let* ((m (regexp-exec regexp a)))
           (list
@@ -88,7 +91,27 @@
             ; has epoch time?
             #t)))))
 
-  (define-as upcoming-datetime-readers list read-ymd-ks)
+  (define read-hms
+    (let (regexp (make-regexp (string-append "^" hms-pattern "$")))
+      (l (a)
+        "string -> (epoch-time relative-time has-epoch-time?)
+        parse a hh[:mm[:ss]] time string"
+        (and-let* ((m (regexp-exec regexp a))) (list #f (seconds-from-hms a) #f)))))
+
+  (define read-ymd-hms
+    (let (regexp (make-regexp (string-append "^(" date-pattern ")( " hms-pattern ")?$")))
+      (l (a) "string -> false/integer:utc-time"
+        (and-let* ((m (regexp-exec regexp a)))
+          (list
+            ; epoch time
+            (ns->s (utc-from-ymd (match:substring m 1)))
+            ; relative time
+            (let (m-2 (match:substring m 2))
+              (if m-2 (ks->s (string->number (string-drop m-2 1))) 0))
+            ; has epoch time?
+            #t)))))
+
+  (define-as upcoming-datetime-readers list read-ymd-ks read-hms read-ymd-hms)
   (define default-start-base (list (q day)))
   (define default-interval-unit (q day))
   (define default-duration 200)
