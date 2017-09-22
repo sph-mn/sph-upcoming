@@ -17,7 +17,7 @@
     (sph upcoming)
     (sph upcoming server))
 
-  ; possible enhancements
+  ; todo
   ;   allow event ids as start/end, which uses the references events start or end respectively
 
   (define-as upcoming-cli-description-source list-qq
