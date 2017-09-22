@@ -115,7 +115,7 @@
               (next (if next (if (integer? next) next 1) 1)) (time (ns->s (utc-current)))
               (data
                 (upcoming-client-upcoming time previous
-                  active next limit (and event-ids (map string->symbol event-ids)))))
+                  (or active 1) next limit (and event-ids (map string->symbol event-ids)))))
             (if (not (or (eof-object? data) (null? data)))
               (display-event-list data (first format) (tail format)))))
         (else (display-line "invalid call"))))))
