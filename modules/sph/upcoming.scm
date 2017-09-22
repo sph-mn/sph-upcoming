@@ -27,6 +27,7 @@
     (sph hashtable)
     (sph io)
     (sph list)
+    (sph one)
     (sph record)
     (sph server)
     (sph time)
@@ -106,8 +107,7 @@
             ; epoch time
             (ns->s (utc-from-ymd (match:substring m 1)))
             ; relative time
-            (let (m-2 (match:substring m 2))
-              (if m-2 (ks->s (string->number (string-drop m-2 1))) 0))
+            (let (m-2 (match:substring m 2)) (if m-2 (seconds-from-hms (string-drop m-2 1)) 0))
             ; has epoch time?
             #t)))))
 
@@ -148,7 +148,8 @@
      string: various date/time formats to be parsed
      symbol: event-id whose start or end time used depending on the given event-time procedure"
     (cond ((not a) (c #f #f #f)) ((number? a) (c #f (ks->s a) #f))
-      ((string? a) (or (any (l (b) (b a)) datetime-readers) (config-read-time-error a)))
+      ( (string? a)
+        (let (b (any (l (b) (b a)) datetime-readers)) (if b (apply c b) (config-read-time-error a))))
       ((symbol? a) (c (event-time (get-ef a)) 0 #t)) (else (config-read-time-error a))))
 
   (define (config-read-times start end u-env c)
@@ -307,7 +308,7 @@
                                 base-events)))
                           start-base-ef)))))))))
         (create-event-functions
-          (l (config u-env)
+          (l (config u-env get-ef)
             "for each event definition, create functions that create one or multiple events
             given an offset and range from the current time"
             (let ((ef-ht (upcoming-env-ef-ht u-env)) (get-events (upcoming-env-get-events u-env)))
@@ -327,8 +328,9 @@
                               (or interval-unit (q kilosecond))
                               (or (and duration (ks->s duration)) default-duration)
                               (or start-base default-start-base) u-env a)
-                            depends get-events)))
-                      (ht-set! ef-ht id ef) ef)))
+                            depends get-events))
+                        (existing-ef (get-ef id)))
+                      (ht-set! ef-ht id (if existing-ef (procedure-append* existing-ef ef) ef)) ef)))
                 config)))))
       (l (config u-env c)
         "list hashtable:all-event-functions hashtable:unit-config procedure -> any
@@ -337,7 +339,7 @@
           ( (ef-ht (ht-copy (upcoming-env-ef-ht u-env) #t)) (get-ef (ht-object ef-ht))
             (get-events (procedure->cached-procedure (l (id . a) (apply (get-ef id) a))))
             (u-env (record-update-b upcoming-env u-env ef-ht get-ef get-events)))
-          (c (create-event-functions config u-env) ef-ht)))))
+          (c (create-event-functions config u-env get-ef) ef-ht)))))
 
   ;-- event series'
 
@@ -357,6 +359,11 @@
       ( (past-active-future
           (l (start-diff end-diff) (if (>= 0 start-diff) (if (< 0 end-diff) 0 -1) 1)))
         (past? (l (a) (< (first a) 0)))
+        (not-active?
+          (l (a) "start time passed and end time is in the future"
+            (not
+              (pair-bind a (diff event)
+                (and (<= diff 0) (< (event-start event) (+ (event-end event) diff)))))))
         (add-diff-start
           (l (a time) "(pair ...) -> (pair ...)" (map (l (a) (pair (- (event-start a) time) a)) a)))
         (create-row
@@ -366,10 +373,10 @@
                 (let* ((duration (- end start)) (end-diff (+ diff duration)))
                   (vector (past-active-future diff end-diff) diff
                     end-diff duration start end (event-id event) (event-data event))))))))
-      (l (a time prev-n active-n next-n id-n ids)
+      (l (a time past-n active-n future-n id-n ids)
         "list:events integer integer integer integer integer (symbol ...) -> (vector ...)
         re-calculate time differences and reselect the relevant range.
-        only leave prev-n events before time and next-n events after time,
+        only leave past-n events before time and future-n events after time,
         and for each direction only id-n repetitions of the same event"
         (let*
           ( (n-of-ids (if id-n (l (a) (events-keep-only-n-of-ids a id-n)) identity))
@@ -380,9 +387,12 @@
             (a
               (consecutive past? a
                 (l (past future)
-                  (append (reverse (take* (abs prev-n) (n-of-ids (reverse past))))
-                    (take* (abs next-n) (n-of-ids future)))))))
-          (map create-row (n-of-ids (of-ids a)))))))
+                  ; past is still sorted <
+                  (consecutive not-active? past
+                    (l (past active)
+                      (append (take* past-n (n-of-ids (reverse past)))
+                        (take* active-n (n-of-ids active)) (take* future-n (n-of-ids future)))))))))
+          (map create-row (of-ids a))))))
 
   ;
   ;-- main exports
@@ -420,6 +430,6 @@
     "vector integer integer integer integer #:id-n integer #:ids (symbol ...) #:u-env vector -> list:(upcoming-table-row ...)
      upcoming-table-row: #(present-diff start-diff end-diff duration start end id)"
     (upcoming-table
-      (upcoming-events time (max past-n active-n)
+      (upcoming-events time (* -1 (if (zero? active-n) past-n (max 1 past-n)))
         future-n (config-cache-config config-cache) (or u-env upcoming-default-env))
       time past-n active-n future-n id-n ids)))
