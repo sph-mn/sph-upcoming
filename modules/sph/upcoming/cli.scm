@@ -11,6 +11,7 @@
     (sph lang indent-syntax)
     (sph list)
     (sph number)
+    (sph record)
     (sph string)
     (sph time)
     (sph time string)
@@ -32,7 +33,6 @@
 
   (define upcoming-cli-about (prefix-tree-text upcoming-cli-about-source))
   (define upcoming-cli-description (prefix-tree-text upcoming-cli-description-source))
-  (define (s->ks-string a) (simple-format-number a 3 2))
   ; (strftime "%c" (localtime (current-time)))
 
   (define cli
@@ -54,35 +54,69 @@
         ((event-ids ...))
         (server #:names #\s #:description "start a server that answers event queries"))))
 
-  (define (display-event-list a time-format time-format-options)
+  (define-record u-row ppf diff-start diff-end duration start end id data)
+  (define (format-time-ks-relative a) (s->ks-string a))
+  (define (format-time-ks-date a) (utc->ymd-ks (s->ns a)))
+  (define (format-time-hms-relative a) (s->hms-string a))
+  (define (format-time-hms-date a) (utc->ymd-hms (s->ns a)))
+
+  (define (text-format event-data current-date format-date format-relative)
+    (let (ymd-prefix (string-append current-date ":"))
+      (display-line "active diff-start diff-end duration start end id")
+      (each
+        (l (a)
+          (display-line
+            (string-join
+              (list (let (ppf (u-row-ppf a)) (if (zero? ppf) "*" (if (= 1 ppf) "<" ">")))
+                (format-relative (u-row-diff-start a)) (format-relative (u-row-diff-end a))
+                (format-relative (u-row-duration a))
+                (string-drop-prefix-if-exists ymd-prefix (format-date (u-row-start a)))
+                (string-drop-prefix-if-exists ymd-prefix (format-date (u-row-end a)))
+                (symbol->string (u-row-id a)))
+              " ")))
+        event-data)))
+
+  (define (display-event-list a format format-options)
     "((diff:integer . vector:event) ...) -> unspecified
      start-diff end-diff duration start end id"
-    (case time-format ((hms) #t)
+    (case format
+      ((ks) (text-format a (utc-current-ymd) format-time-ks-date format-time-ks-relative))
+      ((hms) (text-format a (utc-current-ymd) format-time-hms-date format-time-hms-relative))
       ( (strptime)
+        ;(text-format a (utc-current-ymd) (format-time-strptime-date ) (format-time-strptime-relative))
+        #t)
+      ( (data-scm)
         (each
           (l (a) (put-datum (current-output-port) a) (put-char (current-output-port) #\newline)) a))
-      ( (scm)
+      ( (data-csv)
         (each
-          (l (a) (put-datum (current-output-port) a) (put-char (current-output-port) #\newline)) a))
-      (else (raise (pair (q invalid-time-format-specified) time-format)))))
+          (l (a)
+            (put-string (current-output-port)
+              (string-join
+                (map (l (a) (if (number? a) (number->string a) (string-quote (any->string a))))
+                  (vector->list a))
+                ","))
+            (put-char (current-output-port) #\newline))
+          a))
+      (else (raise (pair (q invalid-format-specified) format)))))
 
   (define (upcoming-cli . program-arguments)
     (alist-bind (apply cli program-arguments)
-      (active config countdown countup event-ids time-format interval limit next previous server)
+      (active config countdown countup event-ids format interval limit next previous server)
       (cond (server (upcoming-server))
         ( (file-exists? upcoming-server-path)
           (let*
-            ( (time-format
-                (if time-format
-                  (let (a (string-split time-format #\:))
+            ( (format
+                (if format
+                  (let (a (string-split format #\:))
                     ; format-name and option-string
                     (pair (string->symbol (first a)) (string-join (tail a) ":")))
-                  (list (q scm) "")))
+                  (list (q ks) "")))
               (previous (if previous (if (integer? previous) previous 1) 0))
               (next (if next (if (integer? next) next 1) 1)) (time (ns->s (utc-current)))
               (data
                 (upcoming-client-upcoming time previous
                   active next limit (and event-ids (map string->symbol event-ids)))))
             (if (not (or (eof-object? data) (null? data)))
-              (display-event-list data (first time-format) (tail time-format)))))
+              (display-event-list data (first format) (tail format)))))
         (else (display-line "invalid call"))))))
