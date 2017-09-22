@@ -72,7 +72,7 @@
      weekday: integer/(integer ...)
      title: string
      depends: id/(id ...)/(or/and/not depends ...)
-     start-depends: id/(id ...)
+     start-base: id/(id ...)
        default variables
      uptime
      uptime-start")
@@ -114,13 +114,8 @@
     (let (regexp (make-regexp (string-append "^(" date-pattern ")( " hms-pattern ")?$")))
       (l (a) "string -> false/integer:utc-time"
         (and-let* ((m (regexp-exec regexp a)))
-          (list
-            ; epoch time
-            (ns->s (utc-from-ymd (match:substring m 1)))
-            ; relative time
-            (let (m-2 (match:substring m 2)) (if m-2 (seconds-from-hms (string-drop m-2 1)) 0))
-            ; has epoch time?
-            #t)))))
+          (list (ns->s (utc-from-ymd (match:substring m 1)))
+            (let (m-2 (match:substring m 2)) (if m-2 (seconds-from-hms (string-drop m-2 1)) 0)) #t)))))
 
   (define-record u-row ppf diff-start diff-end duration start end id data)
   (define-as upcoming-datetime-readers list read-ymd-ks read-hms read-ymd-hms)
@@ -416,12 +411,21 @@
             (a
               (consecutive past? a
                 (l (past future)
-                  ; past is still sorted <
-                  (consecutive not-active? past
+                  (apply-values
                     (l (past active)
                       (append (take* past-n (n-of-ids (reverse past)))
-                        (take* active-n (n-of-ids active)) (take* future-n (n-of-ids future)))))))))
+                        (if active-n (take* active-n (n-of-ids active)) (n-of-ids active))
+                        (take* future-n (n-of-ids future))))
+                    (partition not-active? past))))))
           (map create-row (of-ids a))))))
+
+  (define (debug-event-diff-list a)
+    (debug-log
+      (map
+        (l (a)
+          (list (event-id (tail a)) (utc->ymd-hms (s->ns (event-start (tail a))))
+            (utc->ymd-hms (s->ns (event-end (tail a))))))
+        a)))
 
   ;
   ;-- main exports
@@ -459,6 +463,6 @@
     "vector integer integer integer integer #:id-n integer #:ids (symbol ...) #:u-env vector -> list:(upcoming-table-row ...)
      upcoming-table-row: #(present-diff start-diff end-diff duration start end id)"
     (upcoming-table
-      (upcoming-events time (* -1 (if (zero? active-n) past-n (max 1 past-n)))
+      (upcoming-events time (* -1 (if (and active-n (zero? active-n)) past-n (max 1 past-n)))
         future-n (config-cache-config config-cache) (or u-env upcoming-default-env))
       time past-n active-n future-n id-n ids)))

@@ -48,4 +48,4 @@
   (define* (upcoming-client-upcoming #:optional time past-n active-n future-n id-n ids)
     (upcoming-client-query
       (list (q upcoming) (or time (utc-current))
-        (or past-n 0) (or active-n 0) (or future-n 1) id-n (or ids null)))))
+        (or past-n 0) active-n (or future-n 1) id-n (or ids null)))))

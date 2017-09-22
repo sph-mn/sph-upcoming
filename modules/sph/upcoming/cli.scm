@@ -50,7 +50,7 @@
           #:description "use a different configuration file for the server" #:type string)
         (limit #:value-required? #t
           #:description "include at most n repetitions of distinct event ids" #:type integer)
-        (format #:value-required? #t #:description "hms, strptime, data-space, data-scm, data-csv")
+        (format #:value-required? #t #:description "hms, data-space, data-scm, data-csv")
         ((event-ids ...))
         (server #:names #\s #:description "start a server that answers event queries"))))
 
@@ -112,10 +112,10 @@
                     (pair (string->symbol (first a)) (string-join (tail a) ":")))
                   (list (q ks) "")))
               (previous (if previous (if (integer? previous) previous 1) 0))
-              (next (if next (if (integer? next) next 1) 1)) (time (ns->s (utc-current)))
+              (next (if next (if (integer? next) next 2) 2)) (time (ns->s (utc-current)))
               (data
                 (upcoming-client-upcoming time previous
-                  (or active 1) next limit (and event-ids (map string->symbol event-ids)))))
+                  active next limit (and event-ids (map string->symbol event-ids)))))
             (if (not (or (eof-object? data) (null? data)))
               (display-event-list data (first format) (tail format)))))
         (else (display-line "invalid call"))))))
