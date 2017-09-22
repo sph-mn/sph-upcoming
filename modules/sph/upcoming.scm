@@ -16,7 +16,8 @@
     upcoming-config-variables
     upcoming-doc-config-example
     upcoming-doc-config-syntax
-    upcoming-events)
+    upcoming-events
+    upcoming-table)
   (import
     (ice-9 regex)
     (rnrs eval)
@@ -108,7 +109,7 @@
     uptime (compose s->ks os-seconds-since-boot) uptime-start (compose s->ks os-seconds-at-boot))
 
   (define upcoming-interval-units
-    (ht-create-symbol day duration-day week duration-week kilosecond 1000 second 1))
+    (ht-create-symbol day duration-day week duration-week kilosecond 1000 ks 1000 second 1 s 1))
 
   (define-record upcoming-env ef-ht units readers get-ef get-events)
   (define-record config-cache get config mtime)
@@ -328,29 +329,37 @@
               (begin (ht-set! counter id 1) #t))))
         a)))
 
-  (define (events-add-diff-start time a)
-    "integer (vector:event ...) -> ((integer . vector:event) ...)
-     prepend the difference between event-start and time to event as a pair"
-    (map (l (a) (pair (- (event-start a) time) a)) a))
-
-  (define (events-diff-select a time prev-n active-n next-n id-n ids)
-    "events-with-diff integer ... -> events-with-diff
-     only leave prev-n events before time and next-n events after time,
-     and for each direction only id-n repetitions of the same event"
-    (let
-      ( (n-of-ids (if id-n (l (a) (events-keep-only-n-of-ids a id-n)) identity))
-        (a-sorted (list-sort-with-accessor < first a)) (past? (l (a) (< (first a) 0))))
-      (let
-        (a
-          (consecutive past? a-sorted
-            (l (past future)
-              (append (reverse (take* (abs prev-n) (n-of-ids (reverse past))))
-                (take* (abs next-n) (n-of-ids future))))))
-        (if (null? ids) a (filter (l (a) (containsq? ids (event-id (tail a)))) a)))))
-
-  (define* (upcoming-diff-select events time past-n active-n future-n id-n ids)
-    "re-calculate time differences and reselect the relevant range"
-    (events-diff-select (events-add-diff-start time events) time past-n active-n future-n id-n ids))
+  (define upcoming-table
+    (let*
+      ( (past-active-future
+          (l (start-diff end-diff) (if (>= 0 start-diff) (if (< 0 end-diff) 0 -1) 1)))
+        (past? (l (a) (< (first a) 0)))
+        (add-diff-start
+          (l (a time) "(pair ...) -> (pair ...)" (map (l (a) (pair (- (event-start a) time) a)) a)))
+        (create-row
+          (l (a) "(diff . event) -> vector"
+            (pair-bind a (diff event)
+              (let ((start (event-start event)) (end (event-end event)))
+                (let* ((duration (- end start)) (end-diff (+ diff duration)))
+                  (vector (past-active-future diff end-diff) diff
+                    end-diff duration start end (event-id event) (event-data event))))))))
+      (l (a time prev-n active-n next-n id-n ids)
+        "list:events integer integer integer integer integer (symbol ...) -> (vector ...)
+        re-calculate time differences and reselect the relevant range.
+        only leave prev-n events before time and next-n events after time,
+        and for each direction only id-n repetitions of the same event"
+        (let*
+          ( (n-of-ids (if id-n (l (a) (events-keep-only-n-of-ids a id-n)) identity))
+            (of-ids
+              (if (null? ids) identity
+                (l (a) (filter (l (a) (containsq? ids (event-id (tail a)))) a))))
+            (a (list-sort-with-accessor < first (add-diff-start a time)))
+            (a
+              (consecutive past? a
+                (l (past future)
+                  (append (reverse (take* (abs prev-n) (n-of-ids (reverse past))))
+                    (take* (abs next-n) (n-of-ids future)))))))
+          (map create-row (n-of-ids (of-ids a)))))))
 
   ;
   ;-- main exports
@@ -385,11 +394,9 @@
       (l (ef-list ef-ht) (append-map (l (ef) (ef time offset-start offset-end)) ef-list))))
 
   (define* (upcoming config-cache time past-n active-n future-n #:key id-n ids u-env)
-    "vector integer integer integer (symbol ...) ... -> any
-     return a procedure that when called returns a state object and an event series,
-     the event series is also cached and only relevant parts are recalculated where necessary.
-     the resulting procedure creates less processing overhead for repeated calls than \"upcoming-events\""
-    (upcoming-diff-select
+    "vector integer integer integer integer #:id-n integer #:ids (symbol ...) #:u-env vector -> list:(upcoming-table-row ...)
+     upcoming-table-row: #(present-diff start-diff end-diff duration start end id)"
+    (upcoming-table
       (upcoming-events time (max past-n active-n)
         future-n (config-cache-config config-cache) (or u-env upcoming-default-env))
       time past-n active-n future-n id-n ids)))

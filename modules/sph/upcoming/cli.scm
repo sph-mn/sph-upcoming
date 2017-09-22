@@ -17,9 +17,6 @@
     (sph upcoming)
     (sph upcoming server))
 
-  ; todo
-  ;   allow event ids as start/end, which uses the references events start or end respectively
-
   (define-as upcoming-cli-description-source list-qq
     "filter events in time with event definitions from a configuration file."
     "first start a server with \"upcoming --server\". if the server is running, use \"upcoming\" and other options to query events."
@@ -55,8 +52,9 @@
         (server #:names #\s #:description "start a server that answers event queries"))))
 
   (define (display-event-list a)
-    ; passed-since-start left-till-end duration start end id
-    (each (l (a) (debug-log a)) a))
+    "((diff:integer . vector:event) ...) -> unspecified
+     start-diff end-diff duration start end id"
+    (each (l (a) (put-datum (current-output-port) a) (put-char (current-output-port) #\newline)) a))
 
   (define (upcoming-cli . program-arguments)
     (alist-bind (apply cli program-arguments)
