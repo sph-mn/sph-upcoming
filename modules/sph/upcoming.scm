@@ -8,6 +8,15 @@
     event-end
     event-id
     event-start
+    u-row
+    u-row-data
+    u-row-diff-end
+    u-row-diff-start
+    u-row-duration
+    u-row-end
+    u-row-id
+    u-row-ppf
+    u-row-start
     upcoming
     upcoming-config-cached
     upcoming-config-cached-static
@@ -30,10 +39,12 @@
     (sph one)
     (sph record)
     (sph server)
+    (sph stream)
     (sph time)
     (sph time string)
     (sph time utc)
     (sph two)
+    (srfi srfi-41)
     (except (srfi srfi-1) map)
     (only (sph io read-write) rw-string->list)
     (only (sph one) procedure->cached-procedure))
@@ -111,6 +122,7 @@
             ; has epoch time?
             #t)))))
 
+  (define-record u-row ppf diff-start diff-end duration start end id data)
   (define-as upcoming-datetime-readers list read-ymd-ks read-hms read-ymd-hms)
   (define default-start-base (list (q day)))
   (define default-interval-unit (q day))
@@ -127,9 +139,26 @@
      map the range start..end including start and end"
     (map-integers (+ 1 (- end start)) (l (n) (proc (+ n start)))))
 
+  (define (day-first-login-time)
+    (let (path (string-append (getenv "HOME") "/.config/sph/login-times"))
+      (or
+        (and (file-exists? path)
+          (and-let*
+            ( (time-string
+                (let (date-string (utc->ymd (utc-current)))
+                  (call-with-input-file path
+                    (l (port)
+                      (let
+                        (stream
+                          (stream-filter (l (a) (string-prefix? date-string a))
+                            (port->line-stream port)))
+                        (if (stream-null? stream) #f (stream-first stream))))))))
+            (ks->s (string->number (last (string-split time-string ymd-daytime-delimiter))))))
+        (os-seconds-at-boot))))
+
   (define-as upcoming-config-variables alist-q
     ; symbol -> any/procedure
-    uptime (compose s->ks os-seconds-since-boot) uptime-start (compose s->ks os-seconds-at-boot))
+    uptime os-seconds-since-boot uptime-start os-seconds-at-boot login-time day-first-login-time)
 
   (define upcoming-interval-units
     (ht-create-symbol day duration-day week duration-week kilosecond 1000 ks 1000 second 1 s 1))
@@ -161,7 +190,7 @@
   (define (config-eval line-data variables config-env)
     (let*
       ( (variable-names (map first variables))
-        (variable-values (map (compose (l (a) (if (procedure? a) (a) a)) tail) variables))
+        (variable-values (map (compose (l (a) (s->ks (if (procedure? a) (a) a))) tail) variables))
         (template
           (eval (list (q lambda) variable-names (list (q quasiquote) line-data)) config-env)))
       (apply template variable-values)))

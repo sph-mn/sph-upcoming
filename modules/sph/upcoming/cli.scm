@@ -54,7 +54,6 @@
         ((event-ids ...))
         (server #:names #\s #:description "start a server that answers event queries"))))
 
-  (define-record u-row ppf diff-start diff-end duration start end id data)
   (define (format-time-ks-relative a) (s->ks-string a))
   (define (format-time-ks-date a) (utc->ymd-ks (s->ns a)))
   (define (format-time-hms-relative a) (s->hms-string a))
