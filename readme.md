@@ -7,26 +7,26 @@ line format
 
     time id options ...
 
-supported daytime formats are hour:minute:seconds and kiloseconds of the day. the supported calendar date format is the iso date format yyyy-mm-dd
+supported daytime formats are hour:minute:seconds and kiloseconds of the day (default). the supported calendar date format is the iso date format yyyy-mm-dd. all times are currently utc+0 but there will be an option for local time soon
 
 ```
 28.8 meeting weekday 1
 24 eat interval 10 duration 0.6
 "20:00" sleep
-"00:00" day end "24:00"
 22 work end 55 weekday (1 2 3 4)
+"00:00" day end "24:00"
 42 each-second-day interval 2 interval-unit day
-"2017-12-13" test title "test title"
-"2017-12-13 28.8" test-2 end "2017-12-14 8:00:12" title "test-2 title"
+"2017-12-13" test title "an event"
+"2017-12-13 28.8" test2 end "2017-12-14 8:00:12" title "another event"
 (unquote uptime-start) variable-test end (unquote (+ 2000 uptime-start))
-84 special-day depends (and (not work) (or test test-2))
+84 special-day depends (and (not work) (or test test2))
 ```
 
-most kinds of event series can be defined. multiple definitions with the same id are treated as additional occurrences of the same event
+many kinds of event series can be defined. multiple definitions with the same id are treated as additional occurrences of the same event and merged
 
 ## syntax
 ```
-line/event: time id option/value ...
+line/event: time id option-name/option-value ...
 time-date: string:"yyyy-mm-dd"
 time-day: integer:day-ks/string:"hh[:mm[:ss]]"
 time: time-day/time-date/"time-date time-day"/id
@@ -82,7 +82,7 @@ options
   --about | -a
   --active[=integer] | -c [integer]  select up to n active events
   --config=string  use a different configuration file for the server
-  --format=value  hms, strptime, data-space, data-scm, data-csv
+  --format=value  ks, hms, data-space, data-scm, data-csv
   --help | -h
   --interface
   --limit=integer  include at most n repetitions of distinct event ids
@@ -94,10 +94,21 @@ options
 by default active events and the next event are shown
 
 ## display format
-upcoming displays a table with event information
+upcoming displays a table with event information. the table can be parsed easily by other programs to select relevant information
+
+columns
+```
+active: > past, * active, < future event
+start-diff: the time until or since the start of the event
+end-diff: the time until or since the end of the event
+duration
+start: the date and time when the event starts. if no date is displayed it means the current day
+end
+id: event id
+```
 
 ```
-upcoming --next=4 --previous=2 --limit=1
+upcoming --next=4 --previous=2 --limit=1 --format=ks
 ```
 
 ### ks (default)
@@ -126,7 +137,7 @@ active diff-start diff-end duration start end id
 < 11:12:01 566:45:21 555:33:20 2017-09-23:04:43:26 2017-10-16:08:16:46 variable-test
 ```
 
-### data-scm
+### scm
 ```
 #(-1 -9100 -8500 600 1506092400 1506093000 eat ((id . eat) (start . 24) (interval . 10) (duration . 0.6)))
 #(-1 -21100 -20900 200 1506080400 1506080600 each-second-day ((id . each-second-day) (start . 42) (interval . 2) (interval-unit . day)))
@@ -138,7 +149,7 @@ active diff-start diff-end duration start end id
 #(1 40306 2040306 2000000 1506141806 1508141806 variable-test ((id . variable-test) (start . 17.006610000000002) (end . 2017.00661)))
 ```
 
-### data-csv
+### csv
 ```
 -1,-9111,-8511,600,1506092400,1506093000,"eat","((id . eat) (start . 24) (interval . 10) (duration . 0.6))"
 -1,-21111,-20911,200,1506080400,1506080600,"each-second-day","((id . each-second-day) (start . 42) (interval . 2) (interval-unit . day))"
@@ -151,5 +162,6 @@ active diff-start diff-end duration start end id
 ```
 
 # possible enhancements
+* localtime
 * custom strptime time format
 * "blocks" option. use case "vacation blocks work"

@@ -50,7 +50,7 @@
           #:description "use a different configuration file for the server" #:type string)
         (limit #:value-required? #t
           #:description "include at most n repetitions of distinct event ids" #:type integer)
-        (format #:value-required? #t #:description "hms, data-space, data-scm, data-csv")
+        (format #:value-required? #t #:description "ks, hms, scm, csv")
         ((event-ids ...))
         (server #:names #\s #:description "start a server that answers event queries"))))
 
@@ -84,10 +84,10 @@
       ( (strptime)
         ;(text-format a (utc-current-ymd) (format-time-strptime-date ) (format-time-strptime-relative))
         #t)
-      ( (data-scm)
+      ( (scm)
         (each
           (l (a) (put-datum (current-output-port) a) (put-char (current-output-port) #\newline)) a))
-      ( (data-csv)
+      ( (csv)
         (each
           (l (a)
             (put-string (current-output-port)
