@@ -135,12 +135,12 @@
     (map-integers (+ 1 (- end start)) (l (n) (proc (+ n start)))))
 
   (define (day-first-login-time)
-    (let (path (string-append (getenv "HOME") "/.config/sph/login-times"))
+    (let ((path (string-append (getenv "HOME") "/.config/sph/login-times")) (time (utc-current)))
       (or
         (and (file-exists? path)
           (and-let*
             ( (time-string
-                (let (date-string (utc->ymd (utc-current)))
+                (let (date-string (utc->ymd time))
                   (call-with-input-file path
                     (l (port)
                       (let
@@ -148,8 +148,11 @@
                           (stream-filter (l (a) (string-prefix? date-string a))
                             (port->line-stream port)))
                         (if (stream-null? stream) #f (stream-first stream))))))))
-            (ks->s (string->number (last (string-split time-string ymd-daytime-delimiter))))))
-        (os-seconds-at-boot))))
+            (apply (l (date daytime) (string-append date " " (s->ks-string (string->number daytime))))
+              (string-split time-string ymd-daytime-delimiter))))
+        (let
+          (boot-time (inexact->exact (truncate (s->ns (- (ns->s time) (os-seconds-since-boot))))))
+          (string-append (utc->ymd boot-time) " " (utc-elapsed-day-string boot-time))))))
 
   (define-as upcoming-config-variables alist-q
     ; symbol -> any/procedure
@@ -185,7 +188,7 @@
   (define (config-eval line-data variables config-env)
     (let*
       ( (variable-names (map first variables))
-        (variable-values (map (compose (l (a) (s->ks (if (procedure? a) (a) a))) tail) variables))
+        (variable-values (map (compose (l (a) (if (procedure? a) (a) a)) tail) variables))
         (template
           (eval (list (q lambda) variable-names (list (q quasiquote) line-data)) config-env)))
       (apply template variable-values)))
