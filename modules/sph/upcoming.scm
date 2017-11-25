@@ -148,7 +148,8 @@
                           (stream-filter (l (a) (string-prefix? date-string a))
                             (port->line-stream port)))
                         (if (stream-null? stream) #f (stream-first stream))))))))
-            (apply (l (date daytime) (string-append date " " (s->ks-string (string->number daytime))))
+            (apply
+              (l (date daytime) (string-append date " " (s->ks-string (string->number daytime))))
               (string-split time-string ymd-daytime-delimiter))))
         (let
           (boot-time (inexact->exact (truncate (s->ns (- (ns->s time) (os-seconds-since-boot))))))
@@ -185,7 +186,7 @@
         (append (config-read-time start readers get-ef event-start list)
           (config-read-time end readers get-ef event-end list)))))
 
-  (define (config-eval line-data variables config-env)
+  (define (config-eval line-data variables config-env) "evaluate quasiquoted config data"
     (let*
       ( (variable-names (map first variables))
         (variable-values (map (compose (l (a) (if (procedure? a) (a) a)) tail) variables))
@@ -217,13 +218,14 @@
   ;
 
   (define* (ef-day time offset-start #:optional offset-end)
-    "integer [integer/false] -> list:event-series"
+    "integer [integer/false] -> list:event-series
+     event function for events that are the days"
     (map-offsets offset-start (or offset-end offset-start)
       (l (offset)
         (let (start (+ (* offset duration-day) (ns->s (utc-start-day (s->ns time)))))
           (vector (q day) start (+ start duration-day))))))
 
-  (define (create-ef-weekday weekday) "create an eve"
+  (define (create-ef-weekday weekday)
     (l* (time offset-start #:optional offset-end) "integer [integer/false] -> list:event-series"
       (map-offsets offset-start (or offset-end offset-start)
         (l (offset)
