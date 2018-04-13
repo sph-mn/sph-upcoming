@@ -165,3 +165,19 @@ active diff-start diff-end duration start end id
 * localtime
 * custom strptime time format
 * "blocks" option. use case "vacation blocks work"
+
+# implementation
+event functions return a list of event objects for a time span relative to a given time
+
+```
+f(time, offset-start, offset-end) -> (event ...)
+```
+
+this turned out to work generically.
+
+pseudocode example
+```
+days(tuesday, -1, 0) -> {name: monday, start: timestamp, end: timestamp}
+```
+
+configuration lines are converted to event functions, which are then applied with appropriate offsets and result event lists are subsequently filtered
