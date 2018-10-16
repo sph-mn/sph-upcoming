@@ -28,6 +28,7 @@
     upcoming-events
     upcoming-table)
   (import
+    (guile)
     (ice-9 regex)
     (rnrs eval)
     (rnrs io simple)
@@ -36,18 +37,17 @@
     (sph hashtable)
     (sph io)
     (sph list)
-    (sph one)
+    (sph other)
     (sph record)
     (sph server)
     (sph stream)
     (sph time)
+    (sph process)
     (sph time string)
     (sph time utc)
-    (sph two)
     (srfi srfi-41)
     (except (srfi srfi-1) map)
-    (only (sph io read-write) rw-string->list)
-    (only (sph one) procedure->cached-procedure))
+    (only (sph other) procedure->cached-procedure))
 
   (define upcoming-doc-config-example
     "28.8 meeting weekday 1
@@ -90,6 +90,12 @@
   (define date-pattern "[0-9]{4}-[0-1][0-9]-[0-3][0-9]")
   (define ks-pattern "[0-9.]+")
 
+  (define (os-seconds-since-boot)
+    (string->number (first (string-split (shell-eval->string "cat /proc/uptime") #\space))))
+
+  (define (os-seconds-at-boot)
+    (- (nanoseconds->seconds (utc-elapsed-day (utc-current))) (os-seconds-since-boot)))
+
   (define read-ymd-ks
     (let (regexp (make-regexp (string-append "^(" date-pattern ")( " ks-pattern ")?$")))
       (l (a) "string -> false/integer:utc-time"
@@ -129,6 +135,11 @@
   (define (ks->s a) (inexact->exact (truncate (* 1000 a))))
   (define (s->ks a) (/ a 1000))
 
+  (define (rw-port->list read port)
+    (let loop ((a (read port))) (if (eof-object? a) (list) (pair a (loop (read port))))))
+
+  (define (rw-string->list read a) (call-with-input-string a (l (port) (rw-port->list read port))))
+
   (define (map-offsets start end proc)
     "integer integer proc -> list
      map the range start..end including start and end"
@@ -160,7 +171,7 @@
     uptime os-seconds-since-boot uptime-start os-seconds-at-boot login-time day-first-login-time)
 
   (define upcoming-interval-units
-    (ht-create-symbol day duration-day week duration-week kilosecond 1000 ks 1000 second 1 s 1))
+    (ht-create-symbol-q day duration-day week duration-week kilosecond 1000 ks 1000 second 1 s 1))
 
   (define-record upcoming-env ef-ht units readers get-ef get-events)
   (define-record config-cache get config mtime)
@@ -175,10 +186,13 @@
      numbers: are day-start relative kiloseconds
      string: various date/time formats to be parsed
      symbol: event-id whose start or end time used depending on the given event-time procedure"
-    (cond ((not a) (c #f #f #f)) ((number? a) (c #f (ks->s a) #f))
+    (cond
+      ((not a) (c #f #f #f))
+      ((number? a) (c #f (ks->s a) #f))
       ( (string? a)
         (let (b (any (l (b) (b a)) datetime-readers)) (if b (apply c b) (config-read-time-error a))))
-      ((symbol? a) (c (event-time (get-ef a)) 0 #t)) (else (config-read-time-error a))))
+      ((symbol? a) (c (event-time (get-ef a)) 0 #t))
+      (else (config-read-time-error a))))
 
   (define (config-read-times start end u-env c)
     (apply c
@@ -236,7 +250,7 @@
             (vector (q day) start (+ start duration-day)))))))
 
   (define upcoming-event-functions-ht
-    (ht-create-symbol day ef-day
+    (ht-create-symbol-q day ef-day
       weekday-1 (create-ef-weekday 0)
       weekday-2 (create-ef-weekday 1)
       weekday-3 (create-ef-weekday 2)
@@ -276,7 +290,7 @@
                 (filter
                   (l (event)
                     (let ((start (event-start event)) (end (event-end event)))
-                      (list-set-match-iterate
+                      (list-logical-match
                         (l (depends-id) "filter events that fit in the dependent event series"
                           (let (depends-series (apply get-events depends-id a))
                             ; it is sufficient if it falls into the duration of any occurence of the dependent event

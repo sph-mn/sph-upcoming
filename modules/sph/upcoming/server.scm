@@ -13,7 +13,7 @@
     (sph alist)
     (sph io)
     (sph list)
-    (sph one)
+    (sph other)
     (sph server)
     (sph time)
     (sph upcoming))

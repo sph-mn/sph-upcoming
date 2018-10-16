@@ -7,7 +7,6 @@
     (sph alist)
     (sph cli)
     (sph io)
-    (sph io read-write)
     (sph lang indent-syntax)
     (sph list)
     (sph number)
