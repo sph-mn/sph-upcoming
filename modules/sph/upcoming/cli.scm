@@ -10,16 +10,18 @@
 (export upcoming-cli)
 
 (define upcoming-cli-description-source
-  (list-qq "filter events in time with event definitions from a configuration file."
-    "first start a server with \"upcoming --server\". if the server is running, use \"upcoming\" and other options to query events."
-    (unquote
-      (string-append "event definitions are loaded from the configuration file "
-        (string-quote upcoming-config-path)))))
+  (qq
+    ("filter events in time with event definitions from a configuration file."
+      "first start a server with \"upcoming --server\". if the server is running, use \"upcoming\" and other options to query events."
+      (unquote
+        (string-append "event definitions are loaded from the configuration file "
+          (string-quote upcoming-config-path))))))
 
 (define upcoming-cli-about-source
-  (list-qq ("description" (unquote-splicing upcoming-cli-description-source))
-    ("configuration file syntax" (unquote upcoming-doc-config-syntax))
-    ("example configuration file" (unquote upcoming-doc-config-example))))
+  (qq
+    ( ("description" (unquote-splicing upcoming-cli-description-source))
+      ("configuration file syntax" (unquote upcoming-doc-config-syntax))
+      ("example configuration file" (unquote upcoming-doc-config-example)))))
 
 (define upcoming-cli-about (prefix-tree-text upcoming-cli-about-source))
 (define upcoming-cli-description (prefix-tree-text upcoming-cli-description-source))
@@ -28,19 +30,19 @@
   (cli-create #:description upcoming-cli-description
     #:about upcoming-cli-about
     #:options
-    (list-q
-      (next #:names #\n
-        #:value-optional? #t #:type integer #:description "select up to n future events")
-      (previous #:names #\p
-        #:value-optional? #t #:type integer #:description "select up to n past events")
-      (active #:names #\c
-        #:value-optional? #t #:type integer #:description "select up to n active events")
-      (config #:value-required? #t
-        #:description "use a different configuration file for the server" #:type string)
-      (limit #:value-required? #t
-        #:description "include at most n repetitions of distinct event ids" #:type integer)
-      (format #:value-required? #t #:description "ks, hms, scm, csv") ((event-ids ...))
-      (server #:names #\s #:description "start a server that answers event queries"))))
+    (q
+      ( (next #:names #\n
+          #:value-optional? #t #:type integer #:description "select up to n future events")
+        (previous #:names #\p
+          #:value-optional? #t #:type integer #:description "select up to n past events")
+        (active #:names #\c
+          #:value-optional? #t #:type integer #:description "select up to n active events")
+        (config #:value-required? #t
+          #:description "use a different configuration file for the server" #:type string)
+        (limit #:value-required? #t
+          #:description "include at most n repetitions of distinct event ids" #:type integer)
+        (format #:value-required? #t #:description "ks, hms, scm, csv") ((event-ids ...))
+        (server #:names #\s #:description "start a server that answers event queries")))))
 
 (define (format-time-ks-relative a) (s->ks-string a))
 (define (format-time-ks-date a) (utc->ymd-ks (s->ns a)))
