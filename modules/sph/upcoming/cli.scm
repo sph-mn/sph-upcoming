@@ -40,17 +40,16 @@
           #:description "use a different configuration file for the server" #:type string)
         (limit #:value-required? #t
           #:description "include at most n repetitions of distinct event ids" #:type integer)
-        (format #:value-required? #t #:description "ks, hms, scm, csv") ((event-ids ...))
+        (format #:value-required? #t #:description "hs, hms, scm, csv") ((event-ids ...))
         (server #:names #\s #:description "start a server that answers event queries")))))
 
-(define (format-time-ks-relative a) (s->ks-string a))
-(define (format-time-ks-date a) (utc->ymd-ks (s->ns a)))
+(define (format-time-hs-relative a) (s->hs-string a))
+(define (format-time-hs-date a) (utc->ymd-hs (s->ns a)))
 (define (format-time-hms-relative a) (s->hms-string a))
 (define (format-time-hms-date a) (utc->ymd-hms (s->ns a)))
 
 (define (text-format event-data current-date format-date format-relative)
   (let (ymd-prefix (string-append current-date ":"))
-    (display-line "active diff-start diff-end duration start end id")
     (each
       (l (a)
         (display-line
@@ -61,14 +60,14 @@
               (string-drop-prefix-if-exists ymd-prefix (format-date (u-row-start a)))
               (string-drop-prefix-if-exists ymd-prefix (format-date (u-row-end a)))
               (symbol->string (u-row-id a)))
-            " ")))
+            "\t")))
       event-data)))
 
 (define (display-event-list a format format-options)
   "((diff:integer . vector:event) ...) -> unspecified
    start-diff end-diff duration start end id"
   (case format
-    ((ks) (text-format a (utc-current-ymd) format-time-ks-date format-time-ks-relative))
+    ((hs) (text-format a (utc-current-ymd) format-time-hs-date format-time-hs-relative))
     ((hms) (text-format a (utc-current-ymd) format-time-hms-date format-time-hms-relative))
     ((strptime) #t)
     ( (scm)
@@ -97,7 +96,7 @@
               (if format
                 (let (a (string-split format #\:)) "format-name and option-string"
                   (pair (string->symbol (first a)) (string-join (tail a) ":")))
-                (list (q ks) "")))
+                (list (q hs) "")))
             (previous (if previous (if (integer? previous) previous 1) 0))
             (next (if next (if (integer? next) next 2) 2)) (time (ns->s (utc-current)))
             (data

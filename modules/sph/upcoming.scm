@@ -104,7 +104,7 @@
 (define default-duration 200)
 (define duration-day utc-seconds-day)
 (define duration-week (* 7 duration-day))
-(define upcoming-config-env (environment (q (sph))))
+(define upcoming-config-env (environment (q (guile)) (q (sph))))
 (define (ks->s a) (inexact->exact (truncate (* 1000 a))))
 (define (s->ks a) (/ a 1000))
 

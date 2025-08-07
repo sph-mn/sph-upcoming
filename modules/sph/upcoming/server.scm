@@ -1,7 +1,7 @@
 (define-module (sph upcoming server))
 
 (use-modules (guile) (ice-9 match)
-  (rnrs eval) (sph)
+  (rnrs io ports) (sph)
   (sph alist) (sph io) (sph list) (sph other) (sph server) (sph time) (sph upcoming))
 
 (export upcoming-client upcoming-client-query

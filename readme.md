@@ -1,5 +1,17 @@
 # sph-upcoming
-define events in time and display upcoming ones
+define events in time and display upcoming ones.
+
+this can be used to view time tables for various situations:
+- medication scheduling: doses at fixed times, intervals, or relative to wake-up
+- habit tracking: daily or weekly routines, with configurable frequency
+- task reminders: recurrent chores, deadlines, or appointments
+- exercise routines: e.g. "every second day", "mondays and thursdays"
+- study plans: time blocks for reading, review, or spaced repetition
+- calendar overlays: complement or replace calendar apps with rule-based events
+- system maintenance windows: periodic jobs, backups, or shutdown schedules
+- focus or pomodoro timers: define work/rest intervals using time-based expressions
+- time logging: track spans of activity based on declared or inferred start/end
+- personal analytics: compute or correlate past events and durations (if logging enabled)
 
 # configuration file
 ## example
@@ -165,6 +177,7 @@ active diff-start diff-end duration start end id
 * localtime
 * custom strptime time format
 * "blocks" option. use case "vacation blocks work"
+* triggering: for example, pressing a button to start the next instance of an event. events that wait till being triggered.
 
 # implementation
 event functions return a list of event objects for a time span relative to a given time
