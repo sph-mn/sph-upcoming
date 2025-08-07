@@ -1,5 +1,5 @@
-#!/usr/bin/guile
+#!/usr/bin/env guile
 !#
 
 (import (sph install))
-(install-cli-guile (path-lib-scheme "modules/sph") ("/usr/bin" 493 "exe/upcoming"))
+(install-cli (guile-site-modules "modules/sph") (system-executables 755 "exe/upcoming"))
